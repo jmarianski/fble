@@ -16,10 +16,10 @@ Firmwares with the socket so far (`fext_push.py push` asks the firmware where it
 there):
 
 - SLOOP: its `fext` build (`tools/build.py --fext`), the module in USR4 (0xE7000). Branch `fext` of
-  <https://github.com/jmarianski/sloop-fm1>, proposed to <https://github.com/isod89/sloop-fm1>.
+  <https://github.com/jmarianski/sloop-fm1>, meant for <https://github.com/isod89/sloop-fm1>.
 - Felucca: `FELUCCA_FEXT=1 ./build.sh` (`build/felucca-fext.fwsc`), the module at 0xE8000 above the FM6 voice bank.
   Branch `fext` of <https://github.com/jmarianski/Felucca> (with felucca-bsp's branch `fext`,
-  <https://github.com/jmarianski/felucca-bsp>), proposed to <https://github.com/hugelton/Felucca>.
+  <https://github.com/jmarianski/felucca-bsp>), meant for <https://github.com/hugelton/Felucca>.
 
 The PC setting (BLE 2, first knob) is off at first: a computer sees the FM-1 only once it is on.
 
