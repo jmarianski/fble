@@ -391,7 +391,7 @@ extern char _data_start[], _bss_end[];
 const fext_api *fble_init(const fext_host *h)
 {
     char b[40], *q;
-    if (!h || h->abi_major != FEXT_ABI_MAJOR || h->size < sizeof(fext_host) || !h->log || !h->ms || !h->wdt_feed ||
+    if (!h || h->abi_major != FEXT_ABI_MAJOR || h->size < offsetof(fext_host, flash_read) || !h->log || !h->ms || !h->wdt_feed ||
         !h->irq_attach || !h->stack_floor || !h->quiet || !h->nv_load || !h->nv_save || !h->reboot || !h->say)
         return 0;
     H = h;

@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: MPL-2.0
  * Copyright (C) 2026 Jacek Mariański */
-/* fext: a module for an FM-1 firmware (ABI 1.0). The module is an image of its own, written into a flash slot the
+/* fext: a module for an FM-1 firmware (ABI 1.0; branch fble2: 1.1 proposed below, fext_host's last members). The module is an image of its own, written into a flash slot the
  * firmware (the host) keeps for it, and run in place from there; the host links none of it. The module adds what
  * the firmware does not have (fble, the first: Bluetooth MIDI), with its own pages in the host's menu, its own MIDI
  * ports and its own settings, through the two tables below: the host's services (fext_host) and the module's
@@ -86,7 +86,24 @@ typedef struct {
     int (*nv_save)(int id, const void *src, uint32_t n);
     void (*reboot)(void);
     void (*say)(const char *text);                /* a message on the screen, a moment */
+    /* ---- 1.1 (a PROPOSAL, docs/FBLE2-PLAN.md; no host has it yet): present when size reaches them. A module that
+     * needs one checks size first and goes without (or refuses its radio) on a 1.0 host */
+    int (*flash_read)(uint32_t off, void *dst, uint32_t n);   /* n raw bytes of the flash at offset off, as stored
+                                                   * (no XIP decryption) -> 0, < 0 not readable. Read only, any offset:
+                                                   * the factory's records (the JieLi VM at 0xE7000-0xE9FFF: the
+                                                   * radio's trims) are read where they are, never copied into a slot */
+    void (*irq_attach2)(int index, int level, void (*isr)(void));   /* FEXT_IRQ_*: where the module's interrupt
+                                                   * stands against the host's audio and tick */
+    void (*irq_hold)(int index, int hold);        /* one of the module's attached interrupts held (1) / let go (0)
+                                                   * at the controller, its level kept; from the main loop or inside
+                                                   * the module's own interrupts. A pending one is taken on release */
 } fext_host;
+#define FEXT_IRQ_HIGH 0                           /* above the host's audio and tick (1.0's irq_attach) */
+#define FEXT_IRQ_LOW 1                            /* below them: the module's handler waits for an audio half, the
+                                                   * audio never waits for it (a stack whose radio keeps its own
+                                                   * timing: Optimist's BLE) */
+#define FEXT_HOST_HAS(h, member) ((h)->size >= (uint32_t)((char *)&((fext_host *)0)->member - (char *)0) + \
+                                  (uint32_t)sizeof((h)->member) && (h)->member)
 
 /* the module's pages: four columns (a knob each) and the middle's lines, as the module says them. The host draws
  * them in its own style and turns its knobs into knob() */
