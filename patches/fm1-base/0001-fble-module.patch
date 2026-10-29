@@ -1,0 +1,407 @@
+diff --git a/ble/midi/le_midi.c b/ble/midi/le_midi.c
+index d8077f0..0b382bf 100644
+--- a/ble/midi/le_midi.c
++++ b/ble/midi/le_midi.c
+@@ -7,8 +7,8 @@
+  * The rest is MPL-2.0 (LICENSE). */
+ /* BLE MIDI peripheral on JieLi's BLE stack: the MIDI service (03B80E5A-EDE8-4B33-A751-6CE34EC4C700) with
+  * its one characteristic (7772E5DB-3868-4112-A1A9-F2669D106BF3: read, write without response, notify),
+- * advertised with the service UUID and the name "FM-1". Built on the structure of the SDK's
+- * le_trans_data.c (its event handling and connection-parameter requests), without its test profile.
++ * advertised with the service UUID and a name (fm1.toml ble_name: "FM-1" by default). Built on the structure of the
++ * SDK's le_trans_data.c (its event handling and connection-parameter requests), without its test profile.
+  *
+  *   bt_ble_init()                 the stack is up (BT_STATUS_INIT_OK): profile, advertising
+  *   ble_midi_send_many(link, pkts, ms, n)   USB-MIDI packets (cin | status << 8 | d1 << 16 | d2 << 24), each
+@@ -41,12 +41,17 @@
+ #define LOG_TAG             "[BLE_MIDI]"
+ #define LOG_INFO_ENABLE
+ #include "debug.h"
++#if defined(SHIM_LIB_LOG) && !SHIM_LIB_LOG
++int shim_printf(const char *f, ...);
++#define printf shim_printf                       /* this file's lines stay on the log without the libraries' (fble) */
++#endif
+ const char log_tag_const_i_BLE_MIDI = 1;           /* the SDK keeps these in log_config; ours here */
+ 
+ #ifndef BLE_MIDI_CENTRAL
+ #define BLE_MIDI_CENTRAL 0
+ #endif
+ extern void ble_midi_receive(uint32_t pkt);
++extern void ble_midi_raw(const u8 *b, u16 len, int dev);   /* the whole packet, for the MIDI tap (radio.c) */
+ extern uint32_t shim_ms(void);
+ 
+ /* ---- the GATT database (the SDK's binary form: size, flags, handle, uuid, value). Flags: bit 1 read,
+@@ -78,7 +83,14 @@ static const uint8_t profile_data[] = {
+ #define ATT_RAM_BUFSIZE      (ATT_CTRL_BLOCK_SIZE + ATT_LOCAL_MTU_SIZE + ATT_SEND_CBUF_SIZE)
+ static u8 att_ram_buffer[ATT_RAM_BUFSIZE] __attribute__((aligned(4)));
+ 
+-static const char gap_device_name[] = "FM-1";
++#ifndef FM1B_BLE_NAME
++#define FM1B_BLE_NAME "FM-1"                    /* fm1.toml ble_name (tools/build.py): the name it advertises */
++#endif
++static const char gap_device_name[] = FM1B_BLE_NAME;
++typedef char ble_name_fits[sizeof gap_device_name - 1 <= 29 ? 1 : -1];  /* (the scan response's room) */
++#define ADV_NAME_MAX 8u                          /* the advertising packet's room for it: flags and the MIDI service's
++                                                  * 128-bit UUID take the rest; a longer name goes there shortened, and
++                                                  * whole in the scan response */
+ #if BLE_MIDI_CENTRAL
+ #define ROLE_SERVER 0                            /* the SDK's MULTI_ROLE_SLAVE / MASTER */
+ #define ROLE_CLIENT 1
+@@ -93,6 +105,7 @@ static const char gap_device_name[] = "FM-1";
+ static volatile hci_con_handle_t con_handle;
+ static u8 adv_data[ADV_RSP_PACKET_MAX], scan_rsp_data[ADV_RSP_PACKET_MAX];
+ static u8 ble_work_state, adv_ctrl_en;
++static volatile u8 adv_wanted = 1;              /* the player's: advertise, a computer may connect (ble_midi_advertise) */
+ static OS_MUTEX mutex;
+ 
+ /* connection parameters: ask for a short interval (MIDI latency and jitter): Apple's 11.25-15 ms for
+@@ -162,6 +175,7 @@ static void midi_parse(const u8 *b, u16 len, u32 cable)   /* cable: 0 the centra
+ {
+     u16 i = 1;
+     u8 st = 0;
++    ble_midi_raw(b, len, cable != 0);
+     while (i < len) {
+         if (b[i] & 0x80) {                       /* a timestamp low byte, then maybe a status */
+             i++;
+@@ -309,8 +323,12 @@ static int att_write_callback(hci_con_handle_t connection_handle, uint16_t att_h
+ {
+     switch (att_handle) {
+     case H_CCC:
+-        set_ble_work_state(BLE_ST_NOTIFY_IDICATE);
+-        check_connetion_updata_deal();
++        if (connection_handle == con_handle) {   /* (a device we connected to may subscribe too, on our own link
++                                                  * as its central: BlueZ does; the state then stayed "notify"
++                                                  * after that link went, and advertising was refused for good) */
++            set_ble_work_state(BLE_ST_NOTIFY_IDICATE);
++            check_connetion_updata_deal();
++        }
+         log_info("ccc %02x\n", buffer[0]);
+         CCC_SET(connection_handle, att_handle, buffer[0]);
+         break;
+@@ -420,6 +438,16 @@ int ble_midi_found(int i, char *name, int *rssi)   /* device i of the scan: 0 wh
+         *rssi = mc_dev[i].rssi;
+     return 1;
+ }
++int ble_midi_found_addr(int i, u8 *addr)         /* device i's address, as written (the most significant byte first;
++                                                  * the stack keeps it the other way round) */
++{
++    u8 k;
++    if (i < 0 || i >= mc_n)
++        return 0;
++    for (k = 0; k < 6u; k++)
++        addr[k] = mc_dev[i].addr[5u - k];
++    return 1;
++}
+ int ble_midi_connect(int i)                      /* connect to device i of the scan */
+ {
+     if (i < 0 || i >= mc_n || mc_handle || (mc_state != BLE_MC_SCANNING && mc_state != BLE_MC_OFF))
+@@ -582,7 +610,12 @@ static int make_set_adv_data(void)
+     u8 offset = 0, *buf = adv_data;
+     offset += make_eir_packet_val(&buf[offset], offset, HCI_EIR_DATATYPE_FLAGS, 0x06, 1);
+     offset += make_eir_packet_data(&buf[offset], offset, HCI_EIR_DATATYPE_COMPLETE_128BIT_SERVICE_UUIDS, (void *)svc, 16);
+-    offset += make_eir_packet_data(&buf[offset], offset, HCI_EIR_DATATYPE_COMPLETE_LOCAL_NAME, (void *)gap_device_name, sizeof gap_device_name - 1);
++    if (sizeof gap_device_name - 1u <= ADV_NAME_MAX)
++        offset += make_eir_packet_data(&buf[offset], offset, HCI_EIR_DATATYPE_COMPLETE_LOCAL_NAME, (void *)gap_device_name,
++                                       sizeof gap_device_name - 1);
++    else
++        offset += make_eir_packet_data(&buf[offset], offset, HCI_EIR_DATATYPE_SHORTENED_LOCAL_NAME,
++                                       (void *)gap_device_name, ADV_NAME_MAX);
+     if (offset > ADV_RSP_PACKET_MAX)
+         return -1;
+     log_info("adv_data(%d)\n", offset);
+@@ -605,13 +638,18 @@ static void advertisements_setup_init(void)
+ static int set_adv_enable(void *priv, u32 en)
+ {
+     ble_state_e next_state = en ? BLE_ST_ADV : BLE_ST_IDLE, cur_state;
+-    if ((!adv_ctrl_en && en) || (en && con_handle))
++    if ((!adv_ctrl_en && en) || (en && con_handle) || (en && !adv_wanted)) {   /* (every place that advertises
++                                                                                * again keeps to the player's wish) */
++        if (en && adv_wanted)
++            printf("adv refused: ctrl %d con %x\n", adv_ctrl_en, con_handle);
+         return APP_BLE_OPERATION_ERROR;
++    }
+     cur_state = get_ble_work_state();
+     switch (cur_state) {
+     case BLE_ST_ADV: case BLE_ST_IDLE: case BLE_ST_INIT_OK: case BLE_ST_NULL: case BLE_ST_DISCONN:
+         break;
+     default:
++        printf("adv %d refused: state %d\n", en, cur_state);
+         return APP_BLE_OPERATION_ERROR;
+     }
+     if (cur_state == next_state)
+@@ -751,6 +789,10 @@ static void cbk_sm_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t
+ void ble_profile_init(void)
+ {
+     printf("ble profile init (MIDI)\n");
++#ifndef BLE_MIDI_SM
++#define BLE_MIDI_SM 1                            /* 0 (fble's module, its diet): no Security Manager at all */
++#endif
++#if BLE_MIDI_SM
+     le_device_db_init();
+     sm_init();
+     sm_set_io_capabilities(IO_CAPABILITY_NO_INPUT_NO_OUTPUT);
+@@ -765,6 +807,7 @@ void ble_profile_init(void)
+     sm_set_master_pair_redo(1);
+ #endif
+     sm_event_callback_set(&cbk_sm_packet_handler);
++#endif
+ #if BLE_MIDI_CENTRAL
+     ble_stack_gatt_role(2);                      /* server and client */
+ #endif
+@@ -827,3 +870,20 @@ void bt_ble_exit(void)
+     os_mutex_post(&mutex);
+ }
+ u16 bt_ble_is_connected(void) { return con_handle; }
++
++/* Advertise (a computer may find and connect to the FM-1) or not, as the player asks; off lets a connected computer
++ * go, and the central's link (BLE_MIDI_CENTRAL) stays. ready: the stack is up (else the wish waits for its start). */
++void ble_midi_advertise(int on, int ready)
++{
++    adv_wanted = (u8)(on != 0);
++    if (!ready)
++        return;
++    if (on) {
++        os_mutex_pend(&mutex, 0);
++        adv_ctrl_en = 1;
++        bt_ble_adv_enable(1);
++        os_mutex_post(&mutex);
++    } else
++        bt_ble_exit();
++}
++const char *ble_midi_name(void) { return gap_device_name; }
+diff --git a/ble/shim/misc.c b/ble/shim/misc.c
+index 5aebf7c..9b344d0 100644
+--- a/ble/shim/misc.c
++++ b/ble/shim/misc.c
+@@ -56,7 +56,10 @@ char *strcpy(char *d, const char *s)
+ #define HEAP_BYTES (SHIM_HEAP_KB * 1024u)
+ static uint32_t heap[HEAP_BYTES / 4u] __attribute__((section(".pool")));
+ #else
+-#define HEAP_BYTES (24u * 1024u)
++#ifndef SHIM_HEAP_BYTES
++#define SHIM_HEAP_BYTES (24u * 1024u)   /* (fble's module: smaller, its measured peak and a margin) */
++#endif
++#define HEAP_BYTES SHIM_HEAP_BYTES
+ /* in .bss, low in RAM, not the pool: the radio's buffers come from here, and the hardware does not reach the pool's
+  * top (a CTL-1 with two links, its heap at 0x01C4F028, had stacks overwritten 0.55 s into every Bluetooth start, in
+  * the radio's calibration; at 0x01C121F0 it starts cleanly) */
+@@ -221,6 +224,10 @@ static void fmt(char *o, uint32_t max, const char *f, va_list ap)
+     o[n] = 0;
+ }
+ 
++#ifndef SHIM_LIB_LOG
++#define SHIM_LIB_LOG 1
++#endif
++#if SHIM_LIB_LOG
+ int printf(const char *f, ...)
+ {
+     char b[96];
+@@ -250,6 +257,28 @@ void log_print(int level, const char *tag, const char *f, ...)
+     if (b[0])
+         shim_log(b);
+ }
++#else
++int shim_printf(const char *f, ...)            /* le_midi.c's own lines, kept when the libraries' go */
++{
++    char b[96];
++    va_list ap;
++    va_start(ap, f);
++    fmt(b, sizeof b, f, ap);
++    va_end(ap);
++    if (b[0])
++        shim_log(b);
++    return 0;
++}
++/* SHIM_LIB_LOG 0 (fble's module: its flash is 80 KiB): the libraries' lines dropped where they are written. Empty
++ * bodies, seen by LTO: every call goes, and its format string with it (13 KB of them); the shim's own lines
++ * (shim_log) stay */
++int printf(const char *f, ...) { (void)f; return 0; }
++int puts(const char *s) { (void)s; return 0; }
++int putchar(int c) { return c; }
++void put_buf(const u8 *buf, int len) { (void)buf; (void)len; }
++void printf_buf(const u8 *buf, int len) { (void)buf; (void)len; }
++void log_print(int level, const char *tag, const char *f, ...) { (void)level; (void)tag; (void)f; }
++#endif
+ const int config_asser = 1;                       /* the SDK's lib_system_config.c: assertions report */
+ void cpu_assert_debug(void) { shim_log("BT assert"); }
+ 
+@@ -431,7 +460,11 @@ const int a2dp_sink_media_codec_begin[0], a2dp_sink_media_codec_end[0];
+ 
+ /* ---------------------------------------------------------------- syscfg --- */
+ /* item id -> bytes, all in one flash object: the BT address, the radio's trim, bonding keys */
++#ifdef SHIM_CFG_MAX
++#define CFG_MAX SHIM_CFG_MAX            /* (fble's module: no bonds kept, only the address and the radio's trim) */
++#else
+ #define CFG_MAX 1536u
++#endif
+ static u8 cfg[CFG_MAX];
+ static u32 cfg_len = 0xFFFFFFFFu;
+ static void cfg_load(void)
+@@ -441,6 +474,14 @@ static void cfg_load(void)
+         return;
+     n = shim_store_load(cfg, CFG_MAX);
+     cfg_len = n > 0 ? (u32)n : 0u;
++#ifdef SHIM_CFG_MAX
++    {   /* a store written by a bigger table (bonds) comes cut at CFG_MAX: up to its last whole record */
++        u32 p = 0;
++        while (p + 4u <= cfg_len && p + 4u + (u32)(cfg[p + 2] | cfg[p + 3] << 8) <= cfg_len)
++            p += 4u + (u32)(cfg[p + 2] | cfg[p + 3] << 8);
++        cfg_len = p;
++    }
++#endif
+ }
+ static int cfg_find(u16 id, u32 *at, u32 *len)      /* records: id u16, len u16, bytes */
+ {
+diff --git a/ble/shim/os.c b/ble/shim/os.c
+index b9b44c0..f98529c 100644
+--- a/ble/shim/os.c
++++ b/ble/shim/os.c
+@@ -25,16 +25,24 @@ void *malloc(size_t n);
+ #endif
+ #if SHIM_WIFI
+ #define NTASK 14                      /* main + BT (3) + WiFi (7 seen: tasklet, mlme, cmdq, rx irq, tcpip, connect, wpa) */
++#elif defined SHIM_NTASK
++#define NTASK SHIM_NTASK              /* (fble's module: main + btctrler, btstack; no btencry without BR/EDR) */
+ #else
+ #define NTASK 4                       /* main + btctrler, btstack, btencry */
+ #endif
+ #if SHIM_WIFI
+ #define QLEN 64                       /* ints per task queue: WiFi's tasks wait on semaphores, only sys_timer posts
+                                        * (4 deep at most, measured on fm1-radio): the room goes to the heap (misc.c) */
++#elif defined SHIM_QLEN
++#define QLEN SHIM_QLEN                /* (fble's module: its RAM is the host's) */
+ #else
+ #define QLEN 512                      /* ints per task queue (BT posts bursts) */
+ #endif
++#ifdef SHIM_STACK_WORDS
++#define STACK_WORDS SHIM_STACK_WORDS
++#else
+ #define STACK_WORDS 2048              /* 8 KiB per task, in the pool: an interrupt (the audio render) nests on top */
++#endif
+ 
+ enum { W_NONE, W_TASKQ, W_SEM, W_MUTEX, W_TIME };
+ typedef struct {
+@@ -128,10 +136,19 @@ static task_t *find(const char *name)
+ /* ---- the queue: one ring of ints per task, each message stored as its length then its words */
+ static uint32_t q_used(const task_t *t) { return t->qw - t->qr; }
+ 
++#ifdef SHIM_STATS
++uint16_t shim_q_peak[NTASK], shim_q_full;     /* each queue's fullest (ints) and the posts refused: sizing QLEN */
++#define Q_FULL() shim_q_full++
++#define Q_PEAK(t) do { if (q_used(t) > shim_q_peak[(t) - tasks]) shim_q_peak[(t) - tasks] = (uint16_t)q_used(t); } while (0)
++#else
++#define Q_FULL() ((void)0)
++#define Q_PEAK(t) ((void)0)
++#endif
+ static int q_put(task_t *t, int type, int argc, const int *argv)
+ {
+     uint32_t f = shim_irq_save(), i;
+     if (QLEN - q_used(t) < (uint32_t)argc + 2u) {
++        Q_FULL();
+         shim_irq_restore(f);
+         return OS_Q_FULL;
+     }
+@@ -139,6 +156,7 @@ static int q_put(task_t *t, int type, int argc, const int *argv)
+     t->q[t->qw++ % QLEN] = type;
+     for (i = 0; i < (uint32_t)argc; i++)
+         t->q[t->qw++ % QLEN] = argv[i];
++    Q_PEAK(t);
+     shim_irq_restore(f);
+     return OS_NO_ERR;
+ }
+@@ -364,6 +382,16 @@ int task_create(void (*fn)(void *), void *p, const char *name)
+             last_created = i;
+             return 0;
+     }
++#ifdef SHIM_STATS
++    {   /* no slot: said (sizing NTASK) */
++        char b[40] = "task: no slot for ";
++        int n = 18;
++        while (name && *name && n < 39)
++            b[n++] = *name++;
++        b[n] = 0;
++        shim_log(b);
++    }
++#endif
+     return OS_NO_MORE_TCB;
+ }
+ 
+@@ -400,6 +428,19 @@ void shim_task_end(int i)
+         block();
+ }
+ 
++#ifdef SHIM_STATS
++/* task's deepest stack so far, in bytes (the "STAK" fill left untouched; 0: no such task) */
++int shim_stack_bytes(int i)
++{
++    int u = 0;
++    if (i < 1 || i >= NTASK || !tasks[i].used || !STACK(i))
++        return 0;
++    while (u < (int)STACK_N(i) && STACK(i)[u] == 0x5354414Bu)
++        u++;
++    return ((int)STACK_N(i) - u) * 4;
++}
++const char *shim_task_name(int i) { return i >= 0 && i < NTASK && tasks[i].used ? tasks[i].name : 0; }
++#endif
+ /* task's deepest stack so far, in 256-byte units (the "STAK" fill left untouched) */
+ int shim_stack_depth(int i)
+ {
+diff --git a/ble/shim/systimer.c b/ble/shim/systimer.c
+index b58eabd..4f2f479 100644
+--- a/ble/shim/systimer.c
++++ b/ble/shim/systimer.c
+@@ -9,7 +9,11 @@
+ #include <string.h>
+ #include "shim.h"
+ 
++#ifdef SHIM_NTIMER
++#define NTIMER SHIM_NTIMER            /* (fble's module) */
++#else
+ #define NTIMER 48
++#endif
+ typedef struct {
+     void (*fn)(void *);
+     void *priv;
+@@ -21,6 +25,9 @@ typedef struct {
+ } stimer_t;
+ static stimer_t tm[NTIMER];
+ static uint16_t next_id = 1;
++#ifdef SHIM_STATS
++uint16_t shim_timers_peak;                       /* the most timers ever at once: sizing NTIMER */
++#endif
+ 
+ int os_taskq_post_type(const char *name, int type, int argc, int *argv);
+ int shim_cur_index(void);
+@@ -44,6 +51,16 @@ static u16 add(const char *task, void *priv, void (*fn)(void *), u32 msec, int o
+                 tm[i].id = next_id++;
+             } while (!tm[i].id);
+             tm[i].used = 1;
++#ifdef SHIM_STATS
++            {
++                extern uint16_t shim_timers_peak;
++                int k, n = 0;
++                for (k = 0; k < NTIMER; k++)
++                    n += tm[k].used;
++                if (n > shim_timers_peak)
++                    shim_timers_peak = (uint16_t)n;
++            }
++#endif
+             shim_irq_restore(f);
+             return tm[i].id;
+         }
+diff --git a/tools/build.py b/tools/build.py
+index 34a2e42..dbece8f 100755
+--- a/tools/build.py
++++ b/tools/build.py
+@@ -380,6 +380,11 @@ def radio_units():
+     flags = [*inc(*(dst / d for d in BLE_INC + WIFI_INC * WIFI)), *inc(SRC / "ble" / "shim")]
+     if WIFI:
+         flags += ["-DSHIM_WIFI=1"]
++    if CONF.get("ble_name"):                      # the name Bluetooth advertises (ble/midi/le_midi.c)
++        name = CONF["ble_name"]
++        if not re.fullmatch(r"[ -~]{1,29}", name) or '"' in name or "\\" in name:
++            raise SystemExit(f"fm1.toml ble_name {name!r}: 1..29 printable ASCII characters (the scan response's room)")
++        flags.append(f'-DFM1B_BLE_NAME="{name}"')
+     o = OUT / "ble" / "o"
+     o.mkdir(parents=True, exist_ok=True)
+     units = [("cc", "-c", SRC / "ble" / "shim" / "ctx.S", "-o", o / "ctx.o")]
