@@ -1,0 +1,30 @@
+fble: Bluetooth MIDI for the M-VAVE FM-1, an fext module
+Copyright (C) 2026 Jacek Mariański
+
+This repository's own files are MPL-2.0 (LICENSES/MPL-2.0.txt), file by file, as each header says.
+
+Parts from other authors:
+
+- fm1-base (https://github.com/charlesvestal/fm1-base), a git submodule, MPL-2.0, Copyright (C) 2026 Charles Vestal
+  and the other authors named in its CREDITS.md: the Bluetooth shim and the MIDI service (ble/), which the module is
+  built from. patches/fm1-base/ changes some of its files (MPL-2.0, as the files). module/fble_mod.c follows its
+  device/radio.c.
+- MIDIMON (https://github.com/ignis32/midimonitor_fm1), MPL-2.0, Copyright (C) 2026 ignis32: module/fble_ui.c's
+  central (FIRST / CHOOSE / RECONNECT) follows its app/ble.c.
+- JieLi AC79 SDK (https://gitee.com/Jieli-Tech/fw-AC79_AIoT_SDK), Copyright (c) JIELI (Zhuhai Jieli Technology Co.,
+  Ltd.), Apache License 2.0 (LICENSES/Apache-2.0.txt). None of it is in this repository; the build reads it from
+  your SDK checkout. A built module (build/fble.img) contains, in object form:
+    - JieLi's Bluetooth libraries btctrler.a, btstack.a, crypto_toolbox_Osize.a, wl_rf_common.a, lib_ccm_aes.a
+      (binary only in the SDK). btctrler.a, btstack.a and crypto_toolbox_Osize.a are linked from copies with
+      objects removed (tools/build_module.py diet_libs: profiles the module does not use);
+    - the SDK sources fm1-base's build compiles for Bluetooth, some with constants changed by
+      tools/build_module.py (its LEVERS: log lines off, smaller heaps, queues, stacks and connection counts);
+    - parts of the SDK repeated in fm1-base's ble/ and in module/fble_stubs.c, as their headers say;
+    - libcompiler_rt.a, as shipped in the SDK (LLVM compiler-rt: Apache-2.0 WITH LLVM-exception).
+
+- SLOOP (https://github.com/isod89/sloop-fm1), GPL-3.0 (LICENSES/GPL-3.0.txt), Copyright (C) 2026 Leo Kuroshita
+  (@kurogedelic), Hügelton Instruments: web/fm1ota.js and web/fm1pkg.js, the installer page's firmware update over
+  MIDI, copied unchanged.
+
+A firmware that loads the module (a host with the fext socket) is a separate work under its own licence; the module
+is not linked into it.
