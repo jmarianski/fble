@@ -1,5 +1,19 @@
 # fble: Bluetooth MIDI for the M-VAVE FM-1
 
+> **Archived.** fble was an experiment, and it is not maintained. About three quarters of the module is JieLi's
+> binary-only Bluetooth libraries from the AC79 SDK, so it can not be part of a GPL firmware, only sit beside one.
+> Bluetooth MIDI on the FM-1 is now done by an open stack with no vendor libraries: use
+> [Optimist](https://github.com/w0ts/optimist) (BLE MIDI as a device and as a central to keyboards, pairing,
+> Bluetooth audio) or the stack in [fm1-base](https://github.com/charlesvestal/fm1-base) and
+> [felucca-bsp](https://github.com/hugelton/felucca-bsp).
+>
+> **Warning: installing fble erases the FM-1's radio calibration.** fble's slot starts at `0x0E8000`, where the stock
+> firmware keeps its settings store (the JieLi VM, `55 AA AA 55`) with the radio's RF trims. Optimist and fm1-base read
+> those trims and will not start the radio without them (Optimist shows NO CAL). If you installed fble, put the
+> 12 KiB at `0x0E7000`-`0x0E9FFF` back from a backup of **your own** unit taken before (each unit has its own trims):
+> M-Flasher's restore writes only the sectors that differ, so a copy of your current flash with that range taken from
+> the old backup changes just those three sectors.
+
 fble adds Bluetooth MIDI to an FM-1 firmware that has an **fext socket**. It is a module, not a firmware. You
 install it into the flash on its own, and the firmware loads it at boot and runs it from there. The firmware links
 none of it and knows nothing of Bluetooth. The module brings its own pages, settings and MIDI ports through the
