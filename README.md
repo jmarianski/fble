@@ -12,9 +12,18 @@ With it the FM-1:
   or one you pick from a list (PICK), and it reconnects when the device comes back;
 - sends the firmware's MIDI out to either link (OUT).
 
-Firmwares with the socket so far: SLOOP (its `fext` build: `tools/build.py --fext`), with the module in USR4.
+Firmwares with the socket so far (`fext_push.py push` asks the firmware where its slot is and moves the module
+there):
 
-## Pages (GLO → BLE, BLE 2 in SLOOP)
+- SLOOP: its `fext` build (`tools/build.py --fext`), the module in USR4 (0xE7000). Branch `fext` of
+  <https://github.com/jmarianski/sloop-fm1>, proposed to <https://github.com/isod89/sloop-fm1>.
+- Felucca: `FELUCCA_FEXT=1 ./build.sh` (`build/felucca-fext.fwsc`), the module at 0xE8000 above the FM6 voice bank.
+  Branch `fext` of <https://github.com/jmarianski/Felucca> (with felucca-bsp's branch `fext`,
+  <https://github.com/jmarianski/felucca-bsp>), proposed to <https://github.com/hugelton/Felucca>.
+
+The PC setting (BLE 2, first knob) is off at first: a computer sees the FM-1 only once it is on.
+
+## Pages (GLO → BLE, BLE 2; in Felucca after SONG)
 
 | Page | Knob 1 | Knob 2 | Knob 3 | Knob 4 |
 | --- | --- | --- | --- | --- |
