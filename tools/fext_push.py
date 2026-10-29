@@ -13,7 +13,7 @@ No Python packages: the ALSA raw MIDI device (/dev/snd/midiC<card>D0), found by 
   fext_push.py load                     load it now (the host does at every start anyway)
   fext_push.py remove                   erase the header's sector: no module any more
   fext_push.py reboot [--noload]        restart the FM-1 (--noload: without loading the module)
-  fext_push.py control TEXT             a command for the module (its own: fble's S = state, R1 / R0 = radio on / off)
+  fext_push.py control TEXT             a command for the module (its own: fble's S = state, G = settings, R1 / R0 = radio on / off)
   fext_push.py knob PAGE COL STEPS      turn a knob of the module's pages (0 / 1, column 0..3, steps -63..63)
   fext_push.py log                      the host's log (F0 7D 4C 47: the last crash, the clocks, the module's lines)
   fext_push.py frames IMG.bin OFF OUT   (no FM-1) the write frames for a module already moved to the slot at OFF

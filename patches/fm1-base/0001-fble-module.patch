@@ -1,5 +1,5 @@
 diff --git a/ble/midi/le_midi.c b/ble/midi/le_midi.c
-index d8077f0..0b382bf 100644
+index d8077f0..a089609 100644
 --- a/ble/midi/le_midi.c
 +++ b/ble/midi/le_midi.c
 @@ -7,8 +7,8 @@
@@ -55,6 +55,15 @@ index d8077f0..0b382bf 100644
  static OS_MUTEX mutex;
  
  /* connection parameters: ask for a short interval (MIDI latency and jitter): Apple's 11.25-15 ms for
+@@ -133,7 +146,7 @@ static void connection_update_complete_success(u8 *packet)
+     int conn_interval = hci_subevent_le_connection_update_complete_get_conn_interval(packet);
+     int conn_latency = hci_subevent_le_connection_update_complete_get_conn_latency(packet);
+     int conn_timeout = hci_subevent_le_connection_update_complete_get_supervision_timeout(packet);
+-    printf("conn: interval %d latency %d\n", conn_interval, conn_latency);   /* 1.25 ms units, on the log */
++    printf("conn: int %d lat %d\n", conn_interval, conn_latency);   /* 1.25 ms units, on the log */
+ }
+ 
+ /* ---- MIDI in: a BLE MIDI packet is a header, then (timestamp, message) pairs with running status */
 @@ -162,6 +175,7 @@ static void midi_parse(const u8 *b, u16 len, u32 cable)   /* cable: 0 the centra
  {
      u16 i = 1;
@@ -95,6 +104,15 @@ index d8077f0..0b382bf 100644
  int ble_midi_connect(int i)                      /* connect to device i of the scan */
  {
      if (i < 0 || i >= mc_n || mc_handle || (mc_state != BLE_MC_SCANNING && mc_state != BLE_MC_OFF))
+@@ -472,7 +500,7 @@ void user_client_report_search_result(search_result_t *r)
+             printf("central: MIDI ready\n");
+             bt_ble_adv_enable(1);                /* set up: the computer may find us again */
+         } else {
+-            printf("central: no MIDI characteristic\n");
++            printf("central: no MIDI char\n");
+             ble_op_disconnect(mc_handle);
+         }
+         return;
 @@ -582,7 +610,12 @@ static int make_set_adv_data(void)
      u8 offset = 0, *buf = adv_data;
      offset += make_eir_packet_val(&buf[offset], offset, HCI_EIR_DATATYPE_FLAGS, 0x06, 1);

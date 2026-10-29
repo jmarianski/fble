@@ -22,5 +22,9 @@ Parts from other authors:
     - parts of the SDK repeated in fm1-base's ble/ and in module/fble_stubs.c, as their headers say;
     - libcompiler_rt.a, as shipped in the SDK (LLVM compiler-rt: Apache-2.0 WITH LLVM-exception).
 
+- SLOOP (https://github.com/isod89/sloop-fm1), GPL-3.0 (LICENSES/GPL-3.0.txt), Copyright (C) 2026 Leo Kuroshita
+  (@kurogedelic), Hügelton Instruments: web/fm1ota.js and web/fm1pkg.js, the installer page's firmware update over
+  MIDI, copied unchanged.
+
 A firmware that loads the module (a host with the fext socket) is a separate work under its own licence; the module
 is not linked into it.

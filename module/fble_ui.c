@@ -379,7 +379,9 @@ static int ui_line(uint32_t page, uint32_t i, fext_line *l)
 
 /* ---- the module's own commands (SysEx "FB" op 7: the host passes them on), each a letter, then its bytes:
  *   S        the state: "st <state> dev <central> pc <computer> rx <packets in> found <n> [<first name>]"
- *   R 0|1    RADIO off / on (no arming: a test's, or an installer's) */
+ *   R 0|1    RADIO off / on (no arming: a test's, or an installer's)
+ *   G        the settings, a digit (0 / 1) each: RADIO, PC, RECON, OUT ("1100": the radio on, a computer may connect).
+ *            (S's pc is a computer connected, not the setting) */
 static int ui_control(const uint8_t *in, uint32_t n, char *out, uint32_t max)
 {
     char b[64], *q = b;
@@ -400,8 +402,14 @@ static int ui_control(const uint8_t *in, uint32_t n, char *out, uint32_t max)
             name[12] = 0;
             put_str(put_str(q, " "), name);
         }
+    } else if (n >= 1u && in[0] == 'G') {
+        put_str(b, "0000");                       /* (each setting is 0 or 1: added to its digit) */
+        b[0] += set.radio;
+        b[1] += set.pc;
+        b[2] += set.recon;
+        b[3] += set.out;
     } else if (n >= 2u && in[0] == 'R') {
-        set.radio = in[1] != 0;
+        set.radio = in[1] != 0 && in[1] != '0';  /* "R0" as text (fext_push.py, the page), or a 0 byte */
         set_changed();
         put_str(b, set.radio ? "radio on" : "radio off");
     } else {

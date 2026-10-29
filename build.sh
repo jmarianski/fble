@@ -15,3 +15,5 @@ sh tools/patches.sh apply
 mkdir -p build/test
 cc -O1 -Wall -Wextra -Wno-unused-function -Iinclude -o build/test/test_load tests/test_load.c
 build/test/test_load build/check/fble-sloop.bin build/check/fble-sloop.frames
+# the installer page's fext.js against the python tools (node, when there is one)
+if command -v node >/dev/null; then node tests/test_web.mjs build/fble.img; fi

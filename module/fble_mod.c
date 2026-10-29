@@ -196,7 +196,7 @@ static void radio_settle(int ready)
     if (quiet_on && shim_ms() - radio_t0 > 1000u) {
         quiet_on = 0;
         H->quiet(0);
-        shim_log(ready ? "sound back: ready" : "sound back: 15 s, not ready");
+        shim_log(ready ? "sound back: ready" : "sound back: not ready");
     }
 }
 

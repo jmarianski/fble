@@ -1,0 +1,324 @@
+<!doctype html>
+<!-- SPDX-License-Identifier: MPL-2.0
+     Copyright (C) 2026 Jacek Mariański
+     fble's installer: a firmware with the fext socket (fm1ota.js, SLOOP's, GPL-3.0), then the module (fext.js).
+     make_site.py fills META in. -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>fble installer</title>
+<style>
+:root {
+  --bg: #f6f5f1; --fg: #1d1d1b; --mute: #6a6862; --card: #ffffff; --line: #dedbd2;
+  --acc: #2f5fd0; --acc-fg: #ffffff; --warn: #9a5b00; --bad: #b3261e; --ok: #1f7a3a;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #161614; --fg: #ecebe6; --mute: #a19f97; --card: #201f1d; --line: #34322e;
+    --acc: #7aa2ff; --acc-fg: #10131a; --warn: #e3a64a; --bad: #ff8a80; --ok: #6fd28f;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #161614; --fg: #ecebe6; --mute: #a19f97; --card: #201f1d; --line: #34322e;
+  --acc: #7aa2ff; --acc-fg: #10131a; --warn: #e3a64a; --bad: #ff8a80; --ok: #6fd28f;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--fg); font: 16px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
+main { max-width: 760px; margin: 0 auto; padding: 24px 16px 64px; }
+header { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+h1 { font-size: 1.6rem; margin: 0; }
+h2 { font-size: 1.15rem; margin: 0 0 8px; }
+p { margin: 6px 0; }
+.mute { color: var(--mute); font-size: .92rem; }
+.warn { color: var(--warn); }
+section { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 16px; margin-top: 16px; }
+label.fw { display: block; border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; margin: 8px 0; cursor: pointer; }
+label.fw:has(input:checked) { border-color: var(--acc); }
+.row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 10px; }
+button { font: inherit; border: 1px solid var(--line); background: var(--bg); color: var(--fg); border-radius: 8px; padding: 7px 14px; cursor: pointer; }
+button.main { background: var(--acc); color: var(--acc-fg); border-color: var(--acc); }
+button:disabled { opacity: .5; cursor: default; }
+progress { width: 100%; height: 10px; margin-top: 10px; }
+.status { margin-top: 8px; min-height: 1.5em; }
+.status.bad { color: var(--bad); } .status.ok { color: var(--ok); }
+pre { background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 8px; max-height: 220px; overflow: auto;
+      font-size: .82rem; white-space: pre-wrap; word-break: break-word; margin: 10px 0 0; }
+a { color: var(--acc); }
+.lang button { padding: 3px 9px; }
+.lang button[aria-pressed="true"] { border-color: var(--acc); }
+ul { margin: 6px 0; padding-left: 20px; }
+</style>
+</head>
+<body>
+<main>
+<header>
+  <h1>fble</h1>
+  <div class="lang"><button data-lang="pl">PL</button> <button data-lang="en">EN</button></div>
+</header>
+<p data-t="intro"></p>
+<p class="mute" data-t="needs"></p>
+
+<section>
+  <h2 data-t="s1"></h2>
+  <p data-t="s1p"></p>
+  <div id="fws"></div>
+  <p class="mute warn" data-t="backup"></p>
+  <div class="row"><button class="main" id="fwgo" disabled></button></div>
+  <progress id="fwbar" max="100" value="0"></progress>
+  <div class="status" id="fwst"></div>
+</section>
+
+<section>
+  <h2 data-t="s2"></h2>
+  <p data-t="s2p"></p>
+  <div class="row"><button class="main" id="mgo" disabled></button><button id="mrm"></button></div>
+  <progress id="mbar" max="100" value="0"></progress>
+  <div class="status" id="mst"></div>
+</section>
+
+<section>
+  <h2 data-t="s3"></h2>
+  <p data-t="s3p"></p>
+  <div class="row">
+    <button id="st"></button><button id="r1"></button><button id="r0"></button>
+    <button id="pc1"></button><button id="pc0"></button><button id="lg"></button>
+  </div>
+  <div class="status" id="cst"></div>
+</section>
+
+<section>
+  <h2 data-t="s4"></h2>
+  <div id="src"></div>
+  <p class="mute" data-t="flasher"></p>
+  <p class="mute" data-t="tm"></p>
+</section>
+
+<pre id="log" aria-label="log"></pre>
+</main>
+
+<script type="module">
+import { Updater } from "./fm1ota.js";
+import { productOf, logicalImage } from "./fm1pkg.js";
+import { findFext, readImg, describe } from "./fext.js";
+
+const META = /*META*/{};
+
+const TEXT = {
+  en: {
+    intro: "Bluetooth MIDI for the M-VAVE FM-1: a module (fble) that a firmware with the fext socket loads. Everything here runs in this browser over USB MIDI.",
+    needs: "Needs Chrome or Edge (Web MIDI with SysEx) and the FM-1 on USB. Close any other app that holds its MIDI port.",
+    s1: "1. A firmware with the socket", s1p: "Felucca or SLOOP, built with the fext socket. The FM-1 restarts by itself when the write is done.",
+    backup: "This replaces the firmware on the FM-1. A full backup (and a way back to the official firmware) needs m-flasher, see below.",
+    fwgo: "Install firmware", s2: "2. The module", s2p: "Writes fble into the firmware's module slot and starts it. If a module runs, the FM-1 restarts without it first.",
+    mgo: "Install module", mrm: "Remove module",
+    s3: "3. Settings", s3p: "The same as on the FM-1's BLE pages (GLO → BLE). The radio starts off; PC lets a computer connect.",
+    st: "Status", r1: "Radio on", r0: "Radio off", pc1: "PC on", pc0: "PC off", lg: "Firmware log",
+    s4: "Sources and licences",
+    flasher: "m-flasher (a separate program, not in the browser: browsers cannot reach the FM-1's download mode) makes full backups, restores them and brings back an FM-1 that does not start.",
+    tm: "M-VAVE and FM-1 are trademarks of their owners. This project is not affiliated with them. Use at your own risk.",
+    nomidi: "This browser has no Web MIDI. Use Chrome or Edge.", denied: "MIDI access (with SysEx) was not allowed.",
+    loading: "Loading…", loadfail: "Could not load: ", badpkg: "The download is damaged. Reload the page.",
+    ready: "Ready.", start: "The FM-1 answered: ", verify: "Checking the package…", loader: "Starting the update loader…",
+    write: "Writing…", reboot: "Restarting…", done: "Done: ", stopped: "The write stopped. Replug the USB cable and press Install again.",
+    resume: "The FM-1 is in update mode: finishing the write.",
+    nofext: "No firmware with the fext socket found. Do step 1 first (and close other MIDI apps).",
+    place: "Moved for the slot at ", mreboot: "Restarting the FM-1 without the module…", mwrite: "Writing the module…",
+    loaded: "Loaded. It runs: ", removed: "Removed: ", noanswer: "No answer.", error: "Error: ",
+    leave: "A write is running: leaving now may leave the FM-1 without a firmware.",
+    commit: "commit", lic: "licences", file: "file", module: "module", on: "on", off: "off",
+  },
+  pl: {
+    intro: "Bluetooth MIDI dla M-VAVE FM-1: moduł (fble), który ładuje firmware z gniazdem fext. Wszystko tutaj działa w tej przeglądarce, przez USB MIDI.",
+    needs: "Potrzebny Chrome albo Edge (Web MIDI z SysEx) i FM-1 podłączone przez USB. Zamknij inne programy, które trzymają jego port MIDI.",
+    s1: "1. Firmware z gniazdem", s1p: "Felucca albo SLOOP zbudowane z gniazdem fext. Po zapisie FM-1 samo się zrestartuje.",
+    backup: "To zastępuje firmware w FM-1. Pełna kopia zapasowa (i powrót do oryginalnego firmware'u) wymaga m-flashera, patrz niżej.",
+    fwgo: "Zainstaluj firmware", s2: "2. Moduł", s2p: "Zapisuje fble w miejscu na moduł i go uruchamia. Jeśli jakiś moduł działa, FM-1 najpierw restartuje się bez niego.",
+    mgo: "Zainstaluj moduł", mrm: "Usuń moduł",
+    s3: "3. Ustawienia", s3p: "To samo, co na stronach BLE w FM-1 (GLO → BLE). Radio jest na początku wyłączone; PC pozwala połączyć się komputerowi.",
+    st: "Stan", r1: "Radio wł.", r0: "Radio wył.", pc1: "PC wł.", pc0: "PC wył.", lg: "Log firmware'u",
+    s4: "Źródła i licencje",
+    flasher: "m-flasher (osobny program, nie w przeglądarce: przeglądarka nie dostanie się do trybu download FM-1) robi pełne kopie zapasowe, przywraca je i ratuje FM-1, które nie startuje.",
+    tm: "M-VAVE i FM-1 to znaki towarowe ich właścicieli. Projekt nie jest z nimi powiązany. Używasz na własne ryzyko.",
+    nomidi: "Ta przeglądarka nie ma Web MIDI. Użyj Chrome albo Edge.", denied: "Nie zezwolono na dostęp do MIDI (z SysEx).",
+    loading: "Wczytuję…", loadfail: "Nie udało się wczytać: ", badpkg: "Pobrany plik jest uszkodzony. Odśwież stronę.",
+    ready: "Gotowe do instalacji.", start: "FM-1 odpowiedziało: ", verify: "Sprawdzam paczkę…", loader: "Uruchamiam program aktualizacji…",
+    write: "Zapisuję…", reboot: "Restart…", done: "Gotowe: ", stopped: "Zapis się przerwał. Podłącz kabel USB ponownie i naciśnij Zainstaluj jeszcze raz.",
+    resume: "FM-1 jest w trybie aktualizacji: kończę zapis.",
+    nofext: "Nie znalazłem firmware'u z gniazdem fext. Najpierw krok 1 (i zamknij inne programy MIDI).",
+    place: "Przesunięty na miejsce pod ", mreboot: "Restartuję FM-1 bez modułu…", mwrite: "Zapisuję moduł…",
+    loaded: "Załadowany. Działa: ", removed: "Usunięty: ", noanswer: "Brak odpowiedzi.", error: "Błąd: ",
+    leave: "Trwa zapis: wyjście teraz może zostawić FM-1 bez firmware'u.",
+    commit: "commit", lic: "licencje", file: "plik", module: "moduł", on: "wł.", off: "wył.",
+  },
+};
+
+const $ = (id) => document.getElementById(id);
+let lang = "en";
+try { lang = localStorage.getItem("fble-lang") || ""; } catch (_) {}
+if (!TEXT[lang]) lang = /^pl\b/i.test(navigator.language || "") ? "pl" : "en";
+const t = (k) => TEXT[lang][k] ?? k;
+const shown = {};                                  // the status lines, kept as keys so a language switch redraws them
+const say = (id, k, arg = "", cls = "") => { shown[id] = [k, arg, cls]; draw(id); };
+const draw = (id) => { const [k, arg, cls] = shown[id]; $(id).textContent = (k ? t(k) : "") + arg; $(id).className = "status " + cls; };
+const log = (s) => { $("log").textContent += s + "\n"; $("log").scrollTop = 1e9; };
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+
+function render() {
+  document.documentElement.lang = lang;
+  document.querySelectorAll("[data-t]").forEach((e) => { e.textContent = t(e.dataset.t); });
+  for (const id of ["fwgo", "mgo", "mrm", "st", "r1", "r0", "pc1", "pc0", "lg"]) $(id).textContent = t(id);
+  document.querySelectorAll(".lang button").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.lang === lang)));
+  Object.keys(shown).forEach(draw);
+  $("fws").innerHTML = META.firmware.map((f, i) => `<label class="fw"><input type="radio" name="fw" value="${i}"${i ? "" : " checked"}>
+    <b>${esc(f.name)}</b> ${esc(f.version)} <span class="mute">(${esc(f.product)}, ${esc(f.base)})</span></label>`).join("");
+  const src = (s) => `<a href="${esc(s.url)}">${esc(s.name)}</a> <span class="mute">${t("commit")} ${esc(s.commit.slice(0, 7))}</span>`;
+  $("src").innerHTML = "<ul>" + [...META.firmware, META.module].map((f) => `<li><b>${esc(f.name)}</b>:
+    <a href="${esc(f.file)}">${t("file")}</a> · ${f.source.map(src).join(" · ")} ·
+    <a href="${esc(f.licenses)}">${t("lic")}</a></li>`).join("") + "</ul>";
+}
+document.querySelectorAll(".lang button").forEach((b) => b.addEventListener("click", () => {
+  lang = b.dataset.lang;
+  try { localStorage.setItem("fble-lang", lang); } catch (_) {}
+  render();
+}));
+render();
+
+// the files, each checked against its SHA-256 (a copy cached from an older build is fetched once more)
+const sha = async (b) => [...new Uint8Array(await crypto.subtle.digest("SHA-256", b))].map((x) => x.toString(16).padStart(2, "0")).join("");
+async function fetchChecked(f) {
+  const get = async (cache) => {
+    const r = await fetch(f.file, { cache });
+    if (!r.ok) throw new Error(`${f.file}: HTTP ${r.status}`);
+    return new Uint8Array(await r.arrayBuffer());
+  };
+  let b = await get("no-cache");
+  if ((await sha(b)) !== f.sha256) b = await get("reload");
+  if ((await sha(b)) !== f.sha256) throw Object.assign(new Error("sha256"), { code: "badpkg" });
+  return b;
+}
+
+let busy = false, midi = null;
+const files = { fw: [], module: null };
+const lock = (on) => {
+  busy = on;
+  $("fwgo").disabled = on || !files.fw.length;
+  for (const id of ["mgo", "mrm", "st", "r1", "r0", "pc1", "pc0", "lg"]) $(id).disabled = on || (id === "mgo" && !files.module);
+};
+window.addEventListener("beforeunload", (e) => { if (busy) { e.preventDefault(); e.returnValue = t("leave"); } });
+const failed = (id, e) => {
+  if (e && e.code && TEXT[lang][e.code]) say(id, e.code, e.detail ? ` (${e.detail})` : "", "bad");
+  else say(id, "error", e && e.message, "bad");
+  log(String((e && e.stack) || e));
+};
+async function access() {
+  if (!midi) midi = await navigator.requestMIDIAccess({ sysex: true });
+  return midi;
+}
+
+(async () => {
+  if (!navigator.requestMIDIAccess || !(self.crypto && crypto.subtle)) { say("fwst", "nomidi", "", "bad"); say("mst", "nomidi", "", "bad"); return; }
+  lock(true);
+  say("fwst", "loading"); say("mst", "loading");
+  try {
+    for (const f of META.firmware) {
+      const pkg = await fetchChecked(f);
+      if (productOf(pkg) !== f.product) throw Object.assign(new Error(f.file), { code: "badpkg" });
+      files.fw.push(logicalImage(pkg));
+    }
+    say("fwst", "ready");
+  } catch (e) { failed("fwst", e); }
+  try {
+    const b = await fetchChecked(META.module);
+    const m = describe(readImg(b).img);
+    files.module = b;
+    say("mst", "", `fble ${m.version}, ${m.size} B`);
+    log(`module ${m.name} ${m.version}, ABI ${m.abi.join(".")}, ${m.size} B`);
+  } catch (e) { failed("mst", e); }
+  lock(false);
+})();
+
+// step 1: the firmware (M-UPGRADE over MIDI, as SLOOP's and Felucca's own installers do; the FM-1 restarts at the end)
+$("fwgo").addEventListener("click", async () => {
+  if (busy) return;
+  const i = +document.querySelector('input[name="fw"]:checked').value, f = META.firmware[i], image = files.fw[i];
+  lock(true);
+  $("fwbar").value = 0;
+  const total = 74 + Math.ceil(image.length / 512);   // reads: the check, then the write (512 B each)
+  const step = (k, a) => {
+    log(`${k} ${a ?? ""}`);
+    if (k === "start") say("fwst", "start", a);
+    if (k === "verify") { say("fwst", "verify"); $("fwbar").value = Math.min(100, (a / total) * 100); }
+    if (k === "loader") say("fwst", "loader");
+    if (k === "write") { say("fwst", "write"); $("fwbar").value = Math.min(100, ((74 + a) / total) * 100); }
+    if (k === "reboot") say("fwst", "reboot");
+    if (k === "done") { $("fwbar").value = 100; say("fwst", "done", a, "ok"); }
+  };
+  try {
+    let m;
+    try { m = await access(); } catch (_) { say("fwst", "denied", "", "bad"); lock(false); return; }
+    const up = new Updater(m, log);
+    const ota = await up.find((id) => /^ota-/i.test(id.model), true);
+    if (ota) {
+      ota.link.close();
+      say("fwst", "resume");
+      if (await up.resume(image, step)) { $("fwbar").value = 100; say("fwst", "done", f.name, "ok"); }
+      else say("fwst", "stopped", "", "bad");
+    } else {
+      await up.install(image, f.product, step);
+    }
+  } catch (e) { failed("fwst", e); }
+  lock(false);
+});
+
+// steps 2 and 3: the socket's own SysEx (fext.js)
+async function withFext(id, fn) {
+  if (busy) return;
+  lock(true);
+  let dev = null;
+  try {
+    let m;
+    try { m = await access(); } catch (_) { say(id, "denied", "", "bad"); return; }
+    const found = await findFext(m);
+    if (!found) { say(id, "nofext", "", "bad"); return; }
+    dev = found.fext;
+    log(`fext: ${found.name}`);
+    await fn(dev);
+  } catch (e) { failed(id, e); }
+  finally { if (dev) dev.close(); lock(false); }
+}
+const answer = (id, k, r) => { log(`${k}: ${r}`); r == null ? say(id, "noanswer", "", "bad") : say(id, k, r, "ok"); };
+
+$("mgo").addEventListener("click", () => withFext("mst", async (fx) => {
+  $("mbar").value = 0;
+  await fx.push(files.module, (k, a) => {
+    if (k === "place") { log(`slot ${a.slot.off.toString(16)} xip ${a.slot.xip.toString(16)}, ${a.size} B`); say("mst", "place", "0x" + a.slot.off.toString(16)); }
+    if (k === "reboot") say("mst", "mreboot");
+    if (k === "write") { say("mst", "mwrite"); $("mbar").value = (a.done / a.total) * 100; }
+  });
+  $("mbar").value = 100;
+  answer("mst", "loaded", await fx.status());
+}));
+$("mrm").addEventListener("click", () => withFext("mst", async (fx) => answer("mst", "removed", await fx.remove())));
+// the answer, then the module's settings (G): a knob's answer is the module's state line, the same for on and off
+const andSettings = async (fx, r) => {
+  if (r == null) return null;
+  const g = await fx.control("G");                // RADIO, PC, RECON, OUT: a digit each
+  if (!/^[01]{4}$/.test(g || "")) return `${r} · ${g ?? "?"}`;
+  const v = (i) => t(g[i] === "1" ? "on" : "off");
+  return `${r} · radio ${v(0)} · PC ${v(1)} · recon ${v(2)} · out ${v(3)}`;
+};
+$("st").addEventListener("click", () => withFext("cst", async (fx) => answer("cst", "", await andSettings(fx, await fx.control("S")))));
+$("r1").addEventListener("click", () => withFext("cst", async (fx) => answer("cst", "", await andSettings(fx, await fx.control("R1")))));
+$("r0").addEventListener("click", () => withFext("cst", async (fx) => answer("cst", "", await andSettings(fx, await fx.control("R0")))));
+// PC is knob 1 of the second page (BLE 2): a step up turns it on, a step down off
+$("pc1").addEventListener("click", () => withFext("cst", async (fx) => answer("cst", "", await andSettings(fx, await fx.knob(1, 0, 1)))));
+$("pc0").addEventListener("click", () => withFext("cst", async (fx) => answer("cst", "", await andSettings(fx, await fx.knob(1, 0, -1)))));
+$("lg").addEventListener("click", () => withFext("cst", async (fx) => {
+  const lines = await fx.log();
+  lines.forEach(log);
+  say("cst", "", `${lines.length} lines`, "ok");
+}));
+</script>
+</body>
+</html>
