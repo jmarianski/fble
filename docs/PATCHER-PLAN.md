@@ -383,7 +383,28 @@ checks: package parses with all CRCs; app differs in 9 bytes (call site, trampol
         call -> trampoline -> original target decode; rewrite is byte-identical; ota.bin untouched
 ```
 
-Felucca 1.7.0 gives the same result: call at 0x203474E, guard at 0x2035430. Neither output was ever flashed.
+Felucca 1.7.0 gives the same result: call at 0x203474E, guard at 0x2035430.
+
+### 7.10 On hardware (2026-10-29): a negative control
+
+The default site above is the loop's last call, `ui_message`, and it is conditional: it runs only when there is a
+message to show, so an image patched there boots whether the trampoline works or not. With it on an FM-1 (our
+SLOOP 2.8.3 + fext build, the module removed so its own `fm1_guard_pc_widen` could not hide a fault) the unit ran
+normally with the guard **not** raised: nothing had been fetched from the trampoline. Proof needs a call that runs
+every frame, and a control that must fail:
+
+| Image (`--site 0x202c3a2`: `call ui_draw`, every UI frame) | On the FM-1 |
+|---|---|
+| `--no-guard`: the trampoline past `_etext`, the guard as it was | crash screen at once; the main loop answers no SysEx |
+| the guard constant raised over the trampoline | boots, runs; every frame goes through the trampoline |
+
+So appended code runs in place from XIP, a re-encoded call reaches it, the rebuilt package installs, and the
+PC-limit guard is the one thing that stops it (section 7.6). The crash screen still takes the download-mode SysEx,
+so a failed patch is recovered over USB without keys (M-Flasher 0.7.0: `download-mode`, `firmware --restart`).
+
+For the patcher: choose hook sites from the calls that run on every pass of the loop (no conditional branch
+between the loop's head and the call), never "the last call". `poc_trampoline.py` takes `--site` and `--no-guard`
+for this test.
 
 ## 8. Risks
 
@@ -474,11 +495,12 @@ What this means:
 | Forks | 124 latest-release `.fwsc` files analysed without errors (section 9) |
 | Proof of concept | SLOOP 2.8.3 and Felucca 1.7.0: package rebuilt, re-read, 9 bytes changed, decodes as intended, rewrite identical |
 
+| Hardware (section 7.10) | our SLOOP 2.8.3 + fext build, hook on `ui_draw`: crashes without the guard edit, runs with it |
+
 **Not tested:**
 
-- anything on hardware;
-- whether a patched image boots, which depends on the guard edit being complete and on nothing else checking
-  the image;
+- a patched official release on hardware (only our own build);
+- Felucca on hardware;
 - the overlay page;
 - the socket blob;
 - recipes for forks;

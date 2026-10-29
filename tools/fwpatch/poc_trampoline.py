@@ -32,6 +32,10 @@ def main():
     ap.add_argument("inp")
     ap.add_argument("out")
     ap.add_argument("--sym")
+    ap.add_argument("--site", type=lambda s: int(s, 0),
+                    help="the call site to redirect (one of the main loop's calls; default: its last call)")
+    ap.add_argument("--no-guard", action="store_true",
+                    help="leave the PC-limit guard as it is (a negative control: the trampoline should fault)")
     a = ap.parse_args()
     p = fm1pkg.load(a.inp)
     app = p.app
@@ -43,7 +47,12 @@ def main():
     if not ml:
         sys.exit("no main loop found")
     t0, t1, calls = ml
-    site, target = calls[-1]                       # the loop's last call
+    site, target = calls[-1]                       # the loop's last call (may be conditional: pass --site)
+    if a.site is not None:
+        hit = [c for c in calls if c[0] == a.site]
+        if not hit:
+            sys.exit(f"{a.site:#x} is not one of the main loop's calls")
+        site, target = hit[0]
     funcs = analyze.load_syms(a.sym)[1] if a.sym else []
     name = (" " + analyze.name_of(funcs, target)) if funcs else ""
     tramp = pi32.XIP + ((im.used + 15) & ~15)      # after the image, 16-aligned
@@ -55,6 +64,8 @@ def main():
     off = site - pi32.XIP
     new[off:off + 4] = pi32.enc_call(site, tramp)
     etext, _, guard = analyze.pc_guard(im, analyze.classify(regions))
+    if a.no_guard:
+        guard = []
     for g in guard:                                # the PC-limit guard must let the core fetch the trampoline
         assert struct.unpack_from("<I", new, g - pi32.XIP + 2)[0] == etext
         struct.pack_into("<I", new, g - pi32.XIP + 2, tramp + 4)
