@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: MPL-2.0
  * Copyright (C) 2026 Jacek Mariański */
 /* fext's loader, the part with no hardware in it (fext.h): is there a module in the slot, and may it run? Shared
- * by the host (SLOOP's fext_host.c) and the tests on the computer, so the check that runs on the FM-1 is the one
+ * by the host (its fext_host.c) and the tests on the computer, so the check that runs on the FM-1 is the one
  * tested.
  *
  *   fext_check(fl, &slot, &h)   0, or why not (a short text). fl(off, n): n bytes of the flash at offset off, 0

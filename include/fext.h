@@ -24,8 +24,7 @@
  *
  * The rules of the road: the main loop calls everything in fext_api (never an interrupt); the module's interrupts
  * come through irq_attach; the host's MIDI out goes into midi_out from its interrupts too (a ring, one producer, no
- * call into the module). Texts are UTF-8: the host draws what its font has (fext_text.h in SLOOP's socket folds
- * the rest). */
+ * call into the module). Texts are UTF-8: the host draws what its font has (its fext_text.h folds the rest). */
 #pragma once
 #include <stdint.h>
 
