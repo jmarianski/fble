@@ -47,7 +47,8 @@ DIRTY = False                                       # --dirty: a preview, the mo
 
 def source(d, name, ignore=()):
     """{name, url, commit} of checkout d: clean (but for ignore), its commit on a remote"""
-    dirty = [l for l in git(d, "status", "--porcelain").splitlines() if l[3:] not in ignore]
+    st = subprocess.run(["git", "-C", str(d), "status", "--porcelain"], check=True, capture_output=True, text=True).stdout
+    dirty = [l for l in st.splitlines() if l[3:] not in ignore]     # (not git(): its strip() takes a status column)
     if dirty and DIRTY and d == ROOT:
         print(f"make_site: --dirty: {name} has changes not committed (a preview, not to publish)")
     elif dirty:
