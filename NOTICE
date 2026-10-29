@@ -22,6 +22,18 @@ Parts from other authors:
     - parts of the SDK repeated in fm1-base's ble/ and in module/fble_stubs.c, as their headers say;
     - libcompiler_rt.a, as shipped in the SDK (LLVM compiler-rt: Apache-2.0 WITH LLVM-exception).
 
+- fble2 (branch fble2, a prototype: module2/, docs/FBLE2-PLAN.md) uses none of JieLi's libraries. It contains:
+    - optimist-ble/ble/: Optimist's Bluetooth stack (https://github.com/w0ts/optimist, firmware/src/ble/ at commit
+      fcdc4881e878), Copyright (C) 2026 the Optimist contributors (Henri David, @hdavid, and others), offered as
+      "GPL-3.0-only OR MPL-2.0" and used here under MPL-2.0 (LICENSES/MPL-2.0.txt). Unchanged; the SPDX lines kept;
+    - bsp-radio/: felucca-bsp's radio headers (https://github.com/hugelton/felucca-bsp, chip/ at 305c372, the
+      drivers from Optimist brought in by Charles Vestal in 606c9b2): fm1_ble.h and fm1_ble_rf.h, "GPL-3.0-only OR
+      MPL-2.0", used under MPL-2.0; fm1_rf_cal.h, Apache-2.0, Copyright (c) Zhuhai Jieli Technology Co., Ltd. and
+      Copyright (C) 2026 Charles Vestal (the radio calibration, rewritten from JieLi's wl_rf_common.a);
+      ble_rf_tables_v15.h, Apache-2.0, the radio start-up values captured from M-VAVE's FM-1 V15 firmware
+      (Copyright (c) 2026 Zhuhai Shengke / M-VAVE, published under Apache-2.0 in m-vave/fm1_open). Unchanged.
+  No GPL-3.0-only file of Optimist is in it: module2/hal/ is this repository's own (MPL-2.0).
+
 - SLOOP (https://github.com/isod89/sloop-fm1), GPL-3.0 (LICENSES/GPL-3.0.txt), Copyright (C) 2026 Leo Kuroshita
   (@kurogedelic), Hügelton Instruments: web/fm1ota.js and web/fm1pkg.js, the installer page's firmware update over
   MIDI, copied unchanged.
