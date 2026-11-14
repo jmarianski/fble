@@ -113,3 +113,5 @@ modules too, not only Bluetooth:
 
 MPL-2.0 for this repository's files (`LICENSES/MPL-2.0.txt`). A built module also contains JieLi's Bluetooth
 libraries (Apache-2.0, binary only). See [`NOTICE`](NOTICE) for every part and its authors.
+
+You can also try Fble in the browser, no flashing needed, in the free community [FM-1 Emulator](https://fm1-emulator.atst.tools/).
